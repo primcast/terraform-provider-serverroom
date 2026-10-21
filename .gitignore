@@ -1,0 +1,6 @@
+servcast
+servcast.exe
+terraform-provider-servcast*
+.terraform/
+*.tfstate*
+dist/
