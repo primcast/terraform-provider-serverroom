@@ -1,13 +1,14 @@
 # terraform-provider-serverroom
 
-The Terraform provider and the `serverroom` command-line tool for your dedicated servers. Both talk to the API of
+The Terraform provider for your dedicated servers (the `serverroom` CLI is in
+[primcast/serverroom-cli](https://github.com/primcast/serverroom-cli)). Both talk to the API of
 the control panel you already use, with an API key from **API & Keys**. The key decides which account, and which
 website's API, they use, so there is usually nothing else to configure. If asked for an API URL, give your
 control panel website followed by `/api` (`api_url` in Terraform, `--api-url` or `SERVERROOM_API_URL` for the CLI).
 
 - Terraform Registry: [`primcast/serverroom`](https://registry.terraform.io/providers/primcast/serverroom/latest)
 - Docs: [docs/](docs/index.md) (also on the Registry)
-- CLI downloads: [Releases](https://github.com/primcast/terraform-provider-serverroom/releases)
+- CLI: [primcast/serverroom-cli](https://github.com/primcast/serverroom-cli)
 
 ## Terraform
 
@@ -56,40 +57,9 @@ More examples: [examples/](examples/), and a whole server in [examples/complete]
 
 ## CLI
 
-Download the archive for your system from [Releases](https://github.com/primcast/terraform-provider-serverroom/releases)
-(checksums in `serverroom_<version>_checksums.txt`, signed), or `go install github.com/primcast/terraform-provider-serverroom/cmd/serverroom@latest`.
-
-```sh
-serverroom login                                   # paste your API key; --profile NAME keeps several
-serverroom servers list
-serverroom servers get 246447
-serverroom servers progress 246447 --watch
-serverroom reboot 246447 --yes
-serverroom ssh-keys add laptop ~/.ssh/id_ed25519.pub
-serverroom os M710x                                # what reinstall --os takes
-serverroom reinstall 246447 --os "Debian 12" --ssh-key laptop --user-data setup.sh --yes --wait
-serverroom rescue start 246447 --ssh-key laptop --yes
-serverroom rescue status 246447
-serverroom rescue end 246447 --yes
-serverroom stock --location "New York" --gpu RTX --max-price 250
-serverroom order s4929                             # opens the machine's order page; you pay there
-serverroom rdns set 203.0.113.10 web-01.example.com
-serverroom monitors add --id 246447 --name shop --type http --target https://shop.example.com/
-serverroom webhooks add --url https://ops.example.com/hooks
-serverroom port-alert 246447 --enable --threshold 90 --sustain 15
-```
-
-`--json` on any command prints JSON. Exit status: 0 done, 1 refused or failed, 2 bad usage.
-
-| Variable | |
-|---|---|
-| `SERVERROOM_API_KEY` | key to use instead of the saved login (CI) |
-| `SERVERROOM_PROFILE` | saved login to use (`--profile`) |
-| `SERVERROOM_API_URL` | API base URL (`--api-url`), e.g. `https://www.example.com/api`; default: the key's own website when known |
-| `SERVERROOM_CONFIG` | config file (default: your user config folder, `serverroom/config.json`) |
-
-Permissions a key needs: Account read for the server list, Servers read/write for addresses, reverse DNS, reboots
-and reinstalls, Rescue mode for `rescue`, Alerts and Webhooks for those commands. `stock`, `os` and `order` need no key.
+The `serverroom` command-line tool uses the same API client and lives in
+[primcast/serverroom-cli](https://github.com/primcast/serverroom-cli) (downloads on its Releases page, or
+`go install github.com/primcast/serverroom-cli@latest`).
 
 ## Developing
 
@@ -101,8 +71,9 @@ go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@v0.25.0 gener
 
 `SERVERROOM_TEST_REINSTALL="Debian 12"` adds a real reinstall to the acceptance run. **It erases the test server.**
 
-Releases: push a `v*` tag; [.github/workflows/release.yml](.github/workflows/release.yml) runs GoReleaser twice
-(provider in Registry format, then the CLI into the same release), both signed with the key registered on the Registry.
+Releases: push a `v*` tag; [.github/workflows/release.yml](.github/workflows/release.yml) runs GoReleaser (Registry
+format, signed with the key registered on the Registry). Release only provider assets here: the Registry reads every
+asset of every tag.
 
 Layout: `client/` is the one API client both use, `provider/` the Terraform Plugin Framework provider,
-`cmd/serverroom/` the CLI.
+the CLI imports `client/` from its own repository.

@@ -55,12 +55,12 @@ provider "serverroom" {}
 ### Optional
 
 - `api_key` (String, Sensitive) API key. Defaults to the SERVERROOM_API_KEY environment variable.
-- `api_url` (String) API base URL. Defaults to SERVERROOM_API_URL, else the API of the website the key was made on. Set it to https://<your control panel website>/api if the provider asks for it.
+- `api_url` (String) API base URL. Defaults to SERVERROOM_API_URL, else the API of the website the key was made on. Set it to your control panel website followed by /api (e.g. https://www.example.com/api) if the provider asks for it.
 
 ## Command-line tool
 
 The same API from a terminal: download `serverroom` for your system from the
-[releases page](https://github.com/primcast/terraform-provider-serverroom/releases), then
+[releases page](https://github.com/primcast/serverroom-cli/releases), then
 
 ```sh
 serverroom login                     # paste your API key

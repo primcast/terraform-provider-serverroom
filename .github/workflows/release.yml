@@ -1,4 +1,4 @@
-# Push a tag v*.*.* and this builds, signs and publishes the provider and the CLI. The Terraform Registry picks the
+# Push a tag v*.*.* and this builds, signs and publishes the provider (the CLI lives in primcast/serverroom-cli). The Terraform Registry picks the
 # release up by itself (it watches this repository once the provider is published there).
 #
 # Repository secrets: GPG_PRIVATE_KEY (ASCII-armored, the key registered on the Registry), PASSPHRASE (its passphrase).
@@ -30,14 +30,6 @@ jobs:
         with:
           version: '~> v2'
           args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
-      - name: CLI
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          version: '~> v2'
-          args: release --clean --config .goreleaser.cli.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}

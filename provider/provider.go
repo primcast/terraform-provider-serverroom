@@ -55,7 +55,7 @@ func (p *serverroomProvider) Schema(_ context.Context, _ provider.SchemaRequest,
 				Description: "API key. Defaults to the SERVERROOM_API_KEY environment variable."},
 			"api_url": schema.StringAttribute{Optional: true,
 				Description: "API base URL. Defaults to SERVERROOM_API_URL, else the API of the website the key was made on. " +
-					"Set it to https://<your control panel website>/api if the provider asks for it."},
+					"Set it to your control panel website followed by /api (e.g. https://www.example.com/api) if the provider asks for it."},
 		},
 	}
 }

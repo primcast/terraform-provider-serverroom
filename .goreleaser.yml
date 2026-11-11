@@ -1,7 +1,7 @@
 # The Terraform provider, in the layout the Terraform Registry reads:
 # terraform-provider-serverroom_<version>_<os>_<arch>.zip, one SHA256SUMS for them, signed (SHA256SUMS.sig),
-# and the registry manifest. The CLI is built by .goreleaser.cli.yml into the same release, with its own checksums,
-# so this SHA256SUMS lists only provider archives.
+# and the registry manifest. Nothing else goes on these releases: the Registry reads every asset of every tag, so
+# the CLI is released from its own repository, primcast/serverroom-cli.
 version: 2
 project_name: terraform-provider-serverroom
 
@@ -59,8 +59,6 @@ release:
   extra_files:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
-  footer: |
-    **CLI:** the `serverroom_*` archives are the command-line tool (checksums in `serverroom_{{ .Version }}_checksums.txt`, signed with the same key).
 
 changelog:
   disable: true
