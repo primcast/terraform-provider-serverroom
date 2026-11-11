@@ -29,16 +29,99 @@ func fake(t *testing.T, handler func(w http.ResponseWriter, r *http.Request, bod
 
 func TestBrandURL(t *testing.T) {
 	cases := map[string][2]string{
-		"":                           {"https://www.serverroom.net/api", "serverroom.net"},
-		"primcast.com":               {"https://www.primcast.com/api", "primcast.com"},
-		"https://www.primcast.com":   {"https://www.primcast.com/api", "primcast.com"},
-		"http://127.0.0.1:8080/api/": {"http://127.0.0.1:8080/api", "127.0.0.1"},
+		"primcast.com":                    {"https://www.primcast.com/api", "primcast.com"},
+		"primcast":                        {"https://www.primcast.com/api", "primcast.com"},
+		"https://www.primcast.com":        {"https://www.primcast.com/api", "primcast.com"},
+		"https://www.serverroom.net/api/": {"https://www.serverroom.net/api", "serverroom.net"},
+		"http://127.0.0.1:8080/api/":      {"http://127.0.0.1:8080/api", "127.0.0.1"},
 	}
 	for in, want := range cases {
 		base, brand := BrandURL(in)
 		if base != want[0] || brand != want[1] {
 			t.Errorf("BrandURL(%q) = %q, %q; want %q, %q", in, base, brand, want[0], want[1])
 		}
+	}
+}
+
+// One provider for every brand: with no URL the key's own prefix picks the website.
+func TestTheKeyPicksTheBrand(t *testing.T) {
+	cases := map[string]string{
+		"srk_x": "https://www.serverroom.net/api", "pck_x": "https://www.primcast.com/api",
+		" pck_x ": "https://www.primcast.com/api", "weird": "https://www.serverroom.net/api",
+	}
+	for key, want := range cases {
+		if c := New("", key); c.BaseURL != want {
+			t.Errorf("New(\"\", %q).BaseURL = %q; want %q", key, c.BaseURL, want)
+		}
+	}
+	if CheckKey("", "xyz_unknownprefix") != ErrNeedsURL || CheckKey("https://example.com/api", "xyz_k") != nil ||
+		CheckKey("", "srk_k") != nil {
+		t.Error("CheckKey must ask for the URL only for an unknown key with no URL")
+	}
+	if c := New("http://127.0.0.1:9/api", "pck_x"); c.BaseURL != "http://127.0.0.1:9/api" {
+		t.Errorf("an explicit URL must win over the key's brand, got %q", c.BaseURL)
+	}
+}
+
+// Stock and plan routes are public: the key must not be sent (a key is refused on routes outside its list).
+func TestPublicRoutesSendNoKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Auth-Token") != "" {
+			w.WriteHeader(403)
+			return
+		}
+		switch r.URL.Path {
+		case "/readyservers/list":
+			var f map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&f)
+			if f["maxprice"] == nil || f["count"] != float64(3) {
+				w.WriteHeader(400)
+				return
+			}
+			io.WriteString(w, `[{"name":"s924","serverid":924,"ram":64.0,"price":9,"order_url":"https://x/order?id=s924"}]`)
+		case "/order/config":
+			io.WriteString(w, `{"OS":[{"Value":"Ubuntu 24.04"},{"Value":"Debian 12"},{"Value":"Ubuntu 24.04"}]}`)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "srk_test")
+	list, err := c.Stock(StockFilter{Limit: 3})
+	if err != nil || len(list) != 1 || list[0].RAM != 64 || list[0].OrderURL == "" {
+		t.Fatalf("Stock = %+v, %v", list, err)
+	}
+	names, err := c.PlanOS("M700")
+	if err != nil || strings.Join(names, ",") != "Ubuntu 24.04,Debian 12" {
+		t.Fatalf("PlanOS = %v, %v", names, err)
+	}
+}
+
+func TestRescueRoutes(t *testing.T) {
+	c := fake(t, func(w http.ResponseWriter, r *http.Request, body map[string]interface{}) {
+		switch r.URL.Path {
+		case "/rescue/start":
+			if body["sid"] != float64(77) || body["accountid"] != float64(5) || body["sshkeys"] != "ssh-ed25519 AAA" {
+				w.WriteHeader(712)
+				io.WriteString(w, "bad body")
+				return
+			}
+			io.WriteString(w, `{"session":{"session_id":"r1","state":"booting","address":"203.0.113.9","username":"root","password":"pw","active":true,"steps":[]}}`)
+		case "/rescue/77":
+			io.WriteString(w, `{"sid":77,"available":false,"reason":"Rescue mode is already running","session":null}`)
+		case "/rescue/end":
+			w.WriteHeader(201)
+			io.WriteString(w, "Rescue mode is not running on this server")
+		}
+	})
+	s, err := c.StartRescue(5, 77, "ssh-ed25519 AAA")
+	if err != nil || s.Address != "203.0.113.9" || s.Password != "pw" || s.Extra["steps"] == nil {
+		t.Fatalf("StartRescue = %+v, %v", s, err)
+	}
+	st, err := c.Rescue(5, 77)
+	if err != nil || st.Available || st.Session != nil {
+		t.Fatalf("Rescue = %+v, %v", st, err)
+	}
+	if err := c.EndRescue(5, 77); err == nil || !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("EndRescue must surface the refusal, got %v", err)
 	}
 }
 

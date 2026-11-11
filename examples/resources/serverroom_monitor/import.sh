@@ -1,0 +1,1 @@
+terraform import serverroom_monitor.shop mon_0123456789abcdef

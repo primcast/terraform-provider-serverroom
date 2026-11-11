@@ -1,6 +1,7 @@
-servcast
-servcast.exe
-terraform-provider-servcast*
+/serverroom
+/serverroom.exe
+/terraform-provider-serverroom*
 .terraform/
+.terraform.lock.hcl
 *.tfstate*
 dist/

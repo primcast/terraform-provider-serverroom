@@ -1,4 +1,4 @@
-// terraform-provider-servcast: the Terraform provider for Server Room and Primcast.
+// terraform-provider-serverroom: the Terraform provider for your dedicated servers, one for every brand.
 package main
 
 import (
@@ -8,11 +8,14 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
-	"github.com/serverroom/servcast-terraform/provider"
+	"github.com/primcast/terraform-provider-serverroom/provider"
 )
 
 // version is set by the release build: go build -ldflags "-X main.version=1.2.3".
-var version = "0.1.0"
+var (
+	version = "dev"
+	commit  = ""
+)
 
 func main() {
 	var debug bool
@@ -20,7 +23,7 @@ func main() {
 	flag.Parse()
 
 	err := providerserver.Serve(context.Background(), provider.New(version), providerserver.ServeOpts{
-		Address: "registry.terraform.io/serverroom/servcast",
+		Address: "registry.terraform.io/primcast/serverroom",
 		Debug:   debug,
 	})
 	if err != nil {

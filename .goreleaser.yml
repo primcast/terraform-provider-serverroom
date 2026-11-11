@@ -1,0 +1,66 @@
+# The Terraform provider, in the layout the Terraform Registry reads:
+# terraform-provider-serverroom_<version>_<os>_<arch>.zip, one SHA256SUMS for them, signed (SHA256SUMS.sig),
+# and the registry manifest. The CLI is built by .goreleaser.cli.yml into the same release, with its own checksums,
+# so this SHA256SUMS lists only provider archives.
+version: 2
+project_name: terraform-provider-serverroom
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: provider
+    main: .
+    binary: '{{ .ProjectName }}_v{{ .Version }}'
+    env:
+      - CGO_ENABLED=0
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+    ldflags:
+      - '-s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }}'
+    goos: [freebsd, windows, linux, darwin]
+    goarch: [amd64, '386', arm, arm64]
+    goarm: ['6']
+    ignore:
+      - goos: darwin
+        goarch: '386'
+      - goos: darwin
+        goarch: arm
+
+archives:
+  - id: provider
+    ids: [provider]
+    formats: [zip]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    files:
+      - none*
+
+checksum:
+  extra_files:
+    - glob: 'terraform-registry-manifest.json'
+      name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+  algorithm: sha256
+
+signs:
+  - artifacts: checksum
+    args:
+      - "--batch"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+
+release:
+  extra_files:
+    - glob: 'terraform-registry-manifest.json'
+      name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+  footer: |
+    **CLI:** the `serverroom_*` archives are the command-line tool (checksums in `serverroom_{{ .Version }}_checksums.txt`, signed with the same key).
+
+changelog:
+  disable: true

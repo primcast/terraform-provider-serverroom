@@ -24,7 +24,7 @@ func TestSchemasAreValid(t *testing.T) {
 	for _, f := range p.Resources(ctx) {
 		r := f()
 		var meta resource.MetadataResponse
-		r.Metadata(ctx, resource.MetadataRequest{ProviderTypeName: "servcast"}, &meta)
+		r.Metadata(ctx, resource.MetadataRequest{ProviderTypeName: "serverroom"}, &meta)
 		if names[meta.TypeName] {
 			t.Fatalf("duplicate %s", meta.TypeName)
 		}
@@ -41,7 +41,7 @@ func TestSchemasAreValid(t *testing.T) {
 	for _, f := range p.DataSources(ctx) {
 		d := f()
 		var meta datasource.MetadataResponse
-		d.Metadata(ctx, datasource.MetadataRequest{ProviderTypeName: "servcast"}, &meta)
+		d.Metadata(ctx, datasource.MetadataRequest{ProviderTypeName: "serverroom"}, &meta)
 		var s datasource.SchemaResponse
 		d.Schema(ctx, datasource.SchemaRequest{}, &s)
 		if diags := s.Schema.ValidateImplementation(ctx); diags.HasError() {
@@ -49,8 +49,9 @@ func TestSchemasAreValid(t *testing.T) {
 		}
 		names[meta.TypeName] = true
 	}
-	for _, want := range []string{"servcast_webhook", "servcast_monitor", "servcast_port_alert", "servcast_reverse_dns",
-		"servcast_server_os", "servcast_account", "servcast_servers", "servcast_server"} {
+	for _, want := range []string{"serverroom_webhook", "serverroom_monitor", "serverroom_port_alert", "serverroom_reverse_dns",
+		"serverroom_server_os", "serverroom_account", "serverroom_servers", "serverroom_server", "serverroom_stock",
+		"serverroom_plan_os"} {
 		if !names[want] {
 			t.Errorf("missing %s", want)
 		}

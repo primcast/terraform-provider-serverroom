@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/serverroom/servcast-terraform/client"
+	"github.com/primcast/terraform-provider-serverroom/client"
 )
 
 func configureData(req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) *configured {
@@ -24,7 +24,7 @@ func configureData(req datasource.ConfigureRequest, resp *datasource.ConfigureRe
 	return data
 }
 
-// ------------------------------------------------------------------------------------------------- servcast_account
+// ------------------------------------------------------------------------------------------------- serverroom_account
 
 type accountDataSource struct{ p *configured }
 
@@ -75,7 +75,7 @@ func (d *accountDataSource) Read(ctx context.Context, _ datasource.ReadRequest, 
 		Brand: types.StringValue(me.Brand), Accounts: accounts, Scopes: scopes})...)
 }
 
-// ------------------------------------------------------------------------------------------------- servcast_servers
+// ------------------------------------------------------------------------------------------------- serverroom_servers
 
 type serversDataSource struct{ p *configured }
 
@@ -130,7 +130,7 @@ func (d *serversDataSource) Read(ctx context.Context, _ datasource.ReadRequest, 
 	resp.Diagnostics.Append(resp.State.Set(ctx, out)...)
 }
 
-// ------------------------------------------------------------------------------------------------- servcast_server
+// ------------------------------------------------------------------------------------------------- serverroom_server
 
 type serverDataSource struct{ p *configured }
 

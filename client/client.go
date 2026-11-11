@@ -1,9 +1,10 @@
-// Package client talks to the Server Room / Primcast customer API with an API key.
+// Package client talks to the customer API of your control panel with an API key.
 //
-// One client serves the Terraform provider and the servcast CLI, so both see the same routes, the same errors and
-// the same idea of success. The API is the brand's own: https://www.serverroom.net/api or https://www.primcast.com/api,
-// with the key in the X-Auth-Token header. A key reaches only the routes its permissions list (ServCast
-// apikeys/scopes.py) and never anything that spends money, so nothing here orders or cancels a service.
+// One client serves the Terraform provider and the serverroom CLI, so both see the same routes, the same errors and
+// the same idea of success. The API is the control panel website's own /api, with the key in the X-Auth-Token
+// header. For the websites listed in Brands the key's prefix says which one, so no setting is needed; for any other,
+// give the API URL (https://<your control panel website>/api). A key reaches only the routes its permissions list and never anything
+// that spends money, so nothing here orders or cancels a service: Stock answers with each machine's order link.
 //
 // SUCCESS IS PER ROUTE. The newer routes (webhooks, alerts) answer 2xx with JSON and errors as
 // {"error": {"code", "message"}}. The older ones answer 200 for success and use 201, 202, 204 and 7xx for "refused",
@@ -28,7 +29,7 @@ var Version = "0.1.0"
 type Client struct {
 	BaseURL string // e.g. https://www.serverroom.net/api
 	Key     string
-	Brand   string // serverroom.net or primcast.com, sent as X-Website
+	Brand   string // the brand's website, sent as X-Website
 	HTTP    *http.Client
 	Agent   string
 }
@@ -53,27 +54,72 @@ func NotFound(err error) bool {
 	return ok && (e.Status == 404 || e.Code == "not_found")
 }
 
-// New makes a client for a brand: "serverroom.net" (the default) or "primcast.com", or a full base URL.
-func New(brandOrURL, key string) *Client {
-	base, brand := BrandURL(brandOrURL)
-	return &Client{BaseURL: base, Key: key, Brand: brand, HTTP: &http.Client{Timeout: 60 * time.Second},
-		Agent: "servcast-go/" + Version}
+// Brand is one of the websites the API is served from.
+type Brand struct {
+	Website string // serverroom.net
+	Name    string // Server Room
+	API     string // https://www.serverroom.net/api
+	Prefix  string // srk_
 }
 
-// BrandURL turns a brand name or URL into (API base URL, brand host).
+// Brands, in the order the API numbers them.
+var Brands = []Brand{
+	{"serverroom.net", "Server Room", "https://www.serverroom.net/api", "srk_"},
+	{"primcast.com", "Primcast", "https://www.primcast.com/api", "pck_"},
+}
+
+// BrandOfKey is the brand an API key was made on, from its prefix, or nil.
+func BrandOfKey(key string) *Brand {
+	for i := range Brands {
+		if strings.HasPrefix(strings.TrimSpace(key), Brands[i].Prefix) {
+			return &Brands[i]
+		}
+	}
+	return nil
+}
+
+// ErrNeedsURL says the key's website is not one the client knows, so the API URL must be given.
+var ErrNeedsURL = fmt.Errorf("set the API URL to your control panel website followed by /api " +
+	"(for example https://www.example.com/api): this key's website is not known to this version")
+
+// CheckKey reports ErrNeedsURL when no API URL is given and the key's prefix names no known website.
+func CheckKey(apiURL, key string) error {
+	if strings.TrimSpace(apiURL) == "" && BrandOfKey(key) == nil {
+		return ErrNeedsURL
+	}
+	return nil
+}
+
+// New makes a client. apiURL may be empty (the website comes from the key's prefix), a known website or short name
+// ("primcast", "primcast.com"), or a full base URL. Call CheckKey first when apiURL may be empty.
+func New(apiURL, key string) *Client {
+	key = strings.TrimSpace(key)
+	base, brand := "", ""
+	if strings.TrimSpace(apiURL) != "" {
+		base, brand = BrandURL(apiURL)
+	} else if b := BrandOfKey(key); b != nil {
+		base, brand = b.API, b.Website
+	} else {
+		base, brand = Brands[0].API, Brands[0].Website
+	}
+	return &Client{BaseURL: base, Key: key, Brand: brand, HTTP: &http.Client{Timeout: 60 * time.Second},
+		Agent: "serverroom-go/" + Version}
+}
+
+// BrandURL turns a brand name or URL into (API base URL, brand website).
 func BrandURL(value string) (string, string) {
-	value = strings.TrimSpace(value)
-	switch strings.TrimPrefix(strings.TrimPrefix(value, "www."), "https://www.") {
-	case "", "serverroom", "serverroom.net":
-		return "https://www.serverroom.net/api", "serverroom.net"
-	case "primcast", "primcast.com":
-		return "https://www.primcast.com/api", "primcast.com"
+	value = strings.TrimRight(strings.TrimSpace(value), "/")
+	bare := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(value, "https://"), "http://"), "www.")
+	for _, b := range Brands {
+		if bare == b.Website || bare == strings.SplitN(b.Website, ".", 2)[0] || bare == b.Website+"/api" {
+			return b.API, b.Website
+		}
 	}
 	u, err := url.Parse(value)
 	if err != nil || u.Host == "" {
-		return strings.TrimRight(value, "/"), ""
+		return value, ""
 	}
-	return strings.TrimRight(value, "/"), strings.TrimPrefix(u.Hostname(), "www.")
+	return value, strings.TrimPrefix(u.Hostname(), "www.")
 }
 
 type response struct {
@@ -82,6 +128,10 @@ type response struct {
 }
 
 func (c *Client) do(method, path string, body interface{}) (*response, error) {
+	return c.send(method, path, body, true)
+}
+
+func (c *Client) send(method, path string, body interface{}, auth bool) (*response, error) {
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -94,7 +144,9 @@ func (c *Client) do(method, path string, body interface{}) (*response, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Auth-Token", c.Key)
+	if auth {
+		req.Header.Set("X-Auth-Token", c.Key)
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.Agent)
 	if c.Brand != "" {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -13,8 +14,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 
-	"github.com/serverroom/servcast-terraform/client"
+	"github.com/primcast/terraform-provider-serverroom/client"
 )
 
 func configureResource(req resource.ConfigureRequest, resp *resource.ConfigureResponse) *configured {
@@ -37,7 +39,7 @@ func stringList(ctx context.Context, values []string) (types.List, error) {
 	return list, nil
 }
 
-// ================================================================================================= servcast_webhook
+// ================================================================================================= serverroom_webhook
 
 type webhookResource struct{ p *configured }
 
@@ -181,7 +183,7 @@ func (r *webhookResource) ImportState(ctx context.Context, req resource.ImportSt
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("secret"), "")...)
 }
 
-// ================================================================================================= servcast_monitor
+// ================================================================================================= serverroom_monitor
 
 type monitorResource struct{ p *configured }
 
@@ -327,7 +329,7 @@ func (r *monitorResource) ImportState(ctx context.Context, req resource.ImportSt
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-// ================================================================================================= servcast_port_alert
+// ================================================================================================= serverroom_port_alert
 
 type portAlertResource struct{ p *configured }
 
@@ -441,14 +443,14 @@ func (r *portAlertResource) Delete(ctx context.Context, req resource.DeleteReque
 func (r *portAlertResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	id, err := strconv.ParseInt(req.ID, 10, 64)
 	if err != nil {
-		resp.Diagnostics.AddError("Import by account id", "e.g. terraform import servcast_port_alert.web 246447")
+		resp.Diagnostics.AddError("Import by account id", "e.g. terraform import serverroom_port_alert.web 246447")
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("account_id"), id)...)
 }
 
-// ================================================================================================= servcast_reverse_dns
+// ================================================================================================= serverroom_reverse_dns
 
 type reverseDNSResource struct{ p *configured }
 
@@ -532,7 +534,7 @@ func (r *reverseDNSResource) ImportState(ctx context.Context, req resource.Impor
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("ip"), req.ID)...)
 }
 
-// ================================================================================================= servcast_server_os
+// ================================================================================================= serverroom_server_os
 
 type serverOSResource struct{ p *configured }
 
@@ -545,6 +547,7 @@ type serverOSModel struct {
 	SSHKeys        types.String `tfsdk:"ssh_keys"`
 	UserData       types.String `tfsdk:"user_data"`
 	AllowReinstall types.Bool   `tfsdk:"allow_reinstall"`
+	Wait           types.Bool   `tfsdk:"wait"`
 }
 
 func (r *serverOSResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -559,12 +562,14 @@ func (r *serverOSResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{Computed: true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"account_id": schema.Int64Attribute{Required: true,
+			"account_id": schema.Int64Attribute{Required: true, Description: "The server's service id (data.serverroom_servers).",
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()}},
 			"os":              schema.StringAttribute{Required: true, Description: "Exactly as sold for the plan, e.g. \"Ubuntu 24.04\"."},
 			"ssh_keys":        schema.StringAttribute{Optional: true, Description: "OpenSSH public keys for root, one per line (Linux)."},
 			"user_data":       schema.StringAttribute{Optional: true, Sensitive: true, Description: "#cloud-config (Ubuntu) or a #! script, run once after the install."},
 			"allow_reinstall": schema.BoolAttribute{Optional: true, Description: "Must be true for a change to reinstall the server."},
+			"wait": schema.BoolAttribute{Optional: true, Description: "Wait (up to 90 minutes) until the reinstall is done " +
+				"and the server is back, so what depends on it runs against the new system."},
 		},
 	}
 }
@@ -583,11 +588,47 @@ func (r *serverOSResource) current(accountID int) (string, error) {
 
 func (r *serverOSResource) reinstall(plan serverOSModel) error {
 	if plan.AllowReinstall.IsNull() || !plan.AllowReinstall.ValueBool() {
-		return fmt.Errorf("this would reinstall account %d with %s and erase its disks; set allow_reinstall = true to go ahead",
+		return fmt.Errorf("this would reinstall server %d with %s and erase its disks; set allow_reinstall = true to go ahead",
 			plan.AccountID.ValueInt64(), plan.OS.ValueString())
 	}
 	return r.p.client.Reinstall(int(plan.AccountID.ValueInt64()), plan.OS.ValueString(), plan.SSHKeys.ValueString(),
 		plan.UserData.ValueString())
+}
+
+// waitReady follows the install until it is ready, failed, or 90 minutes pass.
+func (r *serverOSResource) waitReady(ctx context.Context, plan serverOSModel) error {
+	if plan.Wait.IsNull() || !plan.Wait.ValueBool() {
+		return nil
+	}
+	id := int(plan.AccountID.ValueInt64())
+	deadline := time.Now().Add(90 * time.Minute)
+	seen := false
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(30 * time.Second):
+		}
+		list, err := r.p.client.SetupProgress(id)
+		if err != nil {
+			continue // a blip while the API restarts is not a failed install
+		}
+		if len(list) == 0 {
+			if seen {
+				return nil // the half-hour window passed after it finished
+			}
+			continue
+		}
+		seen = true
+		tflog.Info(ctx, "reinstall progress", map[string]interface{}{"stage": list[0].Stage, "percent": list[0].Percent})
+		switch list[0].State {
+		case "ready":
+			return nil
+		case "failed":
+			return fmt.Errorf("the reinstall of server %d failed at %s; support has been told", id, list[0].Stage)
+		}
+	}
+	return fmt.Errorf("server %d was still installing after 90 minutes", id)
 }
 
 func (r *serverOSResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -598,7 +639,9 @@ func (r *serverOSResource) Create(ctx context.Context, req resource.CreateReques
 	}
 	running, err := r.current(int(plan.AccountID.ValueInt64()))
 	if err == nil && running != plan.OS.ValueString() {
-		err = r.reinstall(plan)
+		if err = r.reinstall(plan); err == nil {
+			err = r.waitReady(ctx, plan)
+		}
 	}
 	if err != nil {
 		resp.Diagnostics.AddError("Setting the operating system failed", err.Error())
@@ -629,6 +672,10 @@ func (r *serverOSResource) Update(ctx context.Context, req resource.UpdateReques
 	changed := !plan.OS.Equal(state.OS) || !plan.SSHKeys.Equal(state.SSHKeys) || !plan.UserData.Equal(state.UserData)
 	if changed {
 		if err := r.reinstall(plan); err != nil {
+			resp.Diagnostics.AddError("Reinstalling the server failed", err.Error())
+			return
+		}
+		if err := r.waitReady(ctx, plan); err != nil {
 			resp.Diagnostics.AddError("Reinstalling the server failed", err.Error())
 			return
 		}
