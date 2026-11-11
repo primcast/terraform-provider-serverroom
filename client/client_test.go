@@ -217,3 +217,14 @@ func TestFeatureMap(t *testing.T) {
 		t.Fatal("nil value kept")
 	}
 }
+
+// The API sends times (and sometimes percent) as JSON floats.
+func TestSetupProgressTakesFloats(t *testing.T) {
+	c := fake(t, func(w http.ResponseWriter, r *http.Request, body map[string]interface{}) {
+		io.WriteString(w, `{"progress":[{"accountid":5,"state":"running","stage":"installing","stages":{"queued":1794416452.0,"installing":1794416999.5},"percent":42.0,"started":1794416452.0,"updated":1794417000.25}]}`)
+	})
+	list, err := c.SetupProgress(5)
+	if err != nil || len(list) != 1 || list[0].Percent != 42 || list[0].Stages["queued"] != 1794416452 {
+		t.Fatalf("SetupProgress = %+v, %v", list, err)
+	}
+}

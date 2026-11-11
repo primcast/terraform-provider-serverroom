@@ -16,15 +16,15 @@ func (c *Client) RenameService(accountID int, name string) error {
 
 // Progress is where the install or reinstall of one server stands.
 type Progress struct {
-	AccountID int              `json:"accountid"`
-	Kind      string           `json:"kind"`
-	OS        string           `json:"os"`
-	State     string           `json:"state"` // running, attention, failed, ready
-	Stage     string           `json:"stage"` // queued, preparing, installing, booting, finishing, ready
-	Stages    map[string]int64 `json:"stages"`
-	Percent   int              `json:"percent"`
-	Started   int64            `json:"started"`
-	Updated   int64            `json:"updated"`
+	AccountID int                `json:"accountid"`
+	Kind      string             `json:"kind"`
+	OS        string             `json:"os"`
+	State     string             `json:"state"` // running, attention, failed, ready
+	Stage     string             `json:"stage"` // queued, preparing, installing, booting, finishing, ready
+	Stages    map[string]float64 `json:"stages"`
+	Percent   float64            `json:"percent"`
+	Started   float64            `json:"started"`
+	Updated   float64            `json:"updated"`
 }
 
 // SetupProgress lists the installs running or finished in the last half hour; accountID 0 for all. (servers:read)
