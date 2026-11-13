@@ -39,6 +39,34 @@ func (c *Client) SetupProgress(accountID int) ([]Progress, error) {
 	return out.Progress, c.legacy("GET", path, nil, &out)
 }
 
+// LastStarted is when the newest install on the account began (0 when none is in the half-hour window). Read it
+// BEFORE starting a reinstall and pass it to NewInstall: for a minute or so after the request the progress list
+// still shows the previous install, often already "ready".
+func (c *Client) LastStarted(accountID int) float64 {
+	list, err := c.SetupProgress(accountID)
+	if err != nil {
+		return 0
+	}
+	var last float64
+	for _, p := range list {
+		if p.AccountID == accountID && p.Started > last {
+			last = p.Started
+		}
+	}
+	return last
+}
+
+// NewInstall picks out of a SetupProgress list the install on the account that began after `after` (from
+// LastStarted), or nil while it has not shown up yet.
+func NewInstall(list []Progress, accountID int, after float64) *Progress {
+	for i := range list {
+		if list[i].AccountID == accountID && list[i].Started > after {
+			return &list[i]
+		}
+	}
+	return nil
+}
+
 // ------------------------------------------------------------------------------------------------- rescue
 
 // RescueSession is a running rescue session: the server netbooted into a live system, reachable over SSH as root.

@@ -228,3 +228,25 @@ func TestSetupProgressTakesFloats(t *testing.T) {
 		t.Fatalf("SetupProgress = %+v, %v", list, err)
 	}
 }
+
+// Right after a reinstall request the list still shows the previous install, often "ready": waiting must skip it.
+func TestNewInstallSkipsThePreviousOne(t *testing.T) {
+	c := fake(t, func(w http.ResponseWriter, r *http.Request, body map[string]interface{}) {
+		io.WriteString(w, `{"progress":[{"accountid":5,"state":"ready","stage":"ready","percent":100,"started":1000.0}]}`)
+	})
+	after := c.LastStarted(5)
+	if after != 1000 {
+		t.Fatalf("LastStarted = %v", after)
+	}
+	old := []Progress{{AccountID: 5, State: "ready", Started: 1000}}
+	if p := NewInstall(old, 5, after); p != nil {
+		t.Fatalf("the previous install counted as the new one: %+v", p)
+	}
+	fresh := []Progress{{AccountID: 6, State: "running", Started: 2000}, {AccountID: 5, State: "running", Started: 1100}}
+	if p := NewInstall(fresh, 5, after); p == nil || p.Started != 1100 {
+		t.Fatalf("NewInstall = %+v", p)
+	}
+	if p := NewInstall(old, 5, 0); p == nil {
+		t.Fatal("with nothing before, any install on the account is the new one")
+	}
+}

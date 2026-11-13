@@ -595,8 +595,9 @@ func (r *serverOSResource) reinstall(plan serverOSModel) error {
 		plan.UserData.ValueString())
 }
 
-// waitReady follows the install until it is ready, failed, or 90 minutes pass.
-func (r *serverOSResource) waitReady(ctx context.Context, plan serverOSModel) error {
+// waitReady follows the install that began after `after` (client.LastStarted, read before the request) until it
+// is ready, failed, or 90 minutes pass.
+func (r *serverOSResource) waitReady(ctx context.Context, plan serverOSModel, after float64) error {
 	if plan.Wait.IsNull() || !plan.Wait.ValueBool() {
 		return nil
 	}
@@ -613,19 +614,20 @@ func (r *serverOSResource) waitReady(ctx context.Context, plan serverOSModel) er
 		if err != nil {
 			continue // a blip while the API restarts is not a failed install
 		}
-		if len(list) == 0 {
+		p := client.NewInstall(list, id, after)
+		if p == nil {
 			if seen {
 				return nil // the half-hour window passed after it finished
 			}
-			continue
+			continue // not queued yet: the list may still show the previous install
 		}
 		seen = true
-		tflog.Info(ctx, "reinstall progress", map[string]interface{}{"stage": list[0].Stage, "percent": list[0].Percent})
-		switch list[0].State {
+		tflog.Info(ctx, "reinstall progress", map[string]interface{}{"stage": p.Stage, "percent": p.Percent})
+		switch p.State {
 		case "ready":
 			return nil
 		case "failed":
-			return fmt.Errorf("the reinstall of server %d failed at %s; support has been told", id, list[0].Stage)
+			return fmt.Errorf("the reinstall of server %d failed at %s; support has been told", id, p.Stage)
 		}
 	}
 	return fmt.Errorf("server %d was still installing after 90 minutes", id)
@@ -639,8 +641,9 @@ func (r *serverOSResource) Create(ctx context.Context, req resource.CreateReques
 	}
 	running, err := r.current(int(plan.AccountID.ValueInt64()))
 	if err == nil && running != plan.OS.ValueString() {
+		after := r.p.client.LastStarted(int(plan.AccountID.ValueInt64()))
 		if err = r.reinstall(plan); err == nil {
-			err = r.waitReady(ctx, plan)
+			err = r.waitReady(ctx, plan, after)
 		}
 	}
 	if err != nil {
@@ -671,11 +674,12 @@ func (r *serverOSResource) Update(ctx context.Context, req resource.UpdateReques
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	changed := !plan.OS.Equal(state.OS) || !plan.SSHKeys.Equal(state.SSHKeys) || !plan.UserData.Equal(state.UserData)
 	if changed {
+		after := r.p.client.LastStarted(int(plan.AccountID.ValueInt64()))
 		if err := r.reinstall(plan); err != nil {
 			resp.Diagnostics.AddError("Reinstalling the server failed", err.Error())
 			return
 		}
-		if err := r.waitReady(ctx, plan); err != nil {
+		if err := r.waitReady(ctx, plan, after); err != nil {
 			resp.Diagnostics.AddError("Reinstalling the server failed", err.Error())
 			return
 		}
